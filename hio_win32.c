@@ -166,25 +166,7 @@ int hio_win32_probe(const dict_t *config,
                     const char *path,
                     hio_t **hio)
 {
-    int result;
-#if defined(_BUILD_WIN32)
-    if (tolower(path[0]) == 'h' &&
-        tolower(path[1]) == 'd' &&
-        tolower(path[2]) == 'd' &&
-        isdigit(path[3]) &&
-        ((path[4] == ':' &&
-          path[5] == '\0') ||
-         (isdigit(path[4]) &&
-          path[5] == ':' &&
-          path[6] == '\0')))
-        result = RET_OK;
-    else
-        result = RET_NOT_COMPAT;
-#endif
-#if defined(_BUILD_UNIX)
-    /* osal_map_device_name would check whether input is a device or not */
-    result = RET_OK;
-#endif
+    int result = RET_OK;
 
     if (result == RET_OK) {
         char device_name[MAX_PATH];
