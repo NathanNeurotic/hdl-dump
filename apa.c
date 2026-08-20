@@ -233,9 +233,9 @@ apa_slice_read(hio_t *hio,
 /*@sets toc->slice[slice_index]@*/
 {
     /* APA Primary Slice Boundary: 128 GiB = 2^28 sectors = 0x10000000 sectors */
-    const u_int32_t EXACTLY_128GB_KB = 128 * 1024 * 1024; /* KB */
-    const u_int32_t ALMOST_128GB_KB = EXACTLY_128GB_KB - 1;  /* KB */
-    const u_int32_t SLICE_2_OFFS = 0x10000000;         /* sectors */
+    const u_int32_t EXACTLY_128GB_KB = 128 * 1024 * 1024;   /* KB */
+    const u_int32_t ALMOST_128GB_KB = EXACTLY_128GB_KB - 1; /* KB */
+    const u_int32_t SLICE_2_OFFS = 0x10000000;              /* sectors */
     apa_slice_t *slice = toc->slice + slice_index;
     int result;
     u_int32_t total_sectors;

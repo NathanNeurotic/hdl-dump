@@ -1450,19 +1450,18 @@ progress_cb(progress_t *pgs, /*@unused@*/ void *data)
         fprintf(stdout, "[");
         pos = barWidth * (pgs->pc_completed);
         for (i = 0; i < barWidth; ++i) {
-	        if (i < pos)
-	    	    fprintf(stdout, "=");
-	        else if (i == pos)
-	    	    fprintf(stdout, ">");
-	        else
-	    	    fprintf(stdout, " ");
-	    }
+            if (i < pos)
+                fprintf(stdout, "=");
+            else if (i == pos)
+                fprintf(stdout, ">");
+            else
+                fprintf(stdout, " ");
+        }
         fprintf(stdout,
                 "] %3d%%, %s remaining, %.2f MB/sec         \r",
                 pgs->pc_completed, pgs->remaining_text,
                 (double)pgs->curr_bps / (1024.0 * 1024.0));
-    }
-    else
+    } else
         fprintf(stdout, "%3d%%\r", pgs->pc_completed);
 
     if (now > last_flush) { /* flush about once per second */
