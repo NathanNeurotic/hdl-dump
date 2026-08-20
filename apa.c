@@ -538,6 +538,7 @@ setup_main_part(/*@out@*/ ps2_partition_header_t *part,
                 u_int32_t last_partition_sector)
 {
     u_int32_t i;
+    assert(partitions_used <= PS2_PART_MAXSUB + 1);
     memset(part, 0, sizeof(ps2_partition_header_t));
     memcpy(part->magic, PS2_PARTITION_MAGIC, 4);
     set_u32(&part->next, partitions_used > 0 ? partitions[1].sector : 0);
