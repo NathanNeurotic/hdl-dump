@@ -1334,41 +1334,53 @@ char *ppa_files_name[] = {
 int apa_dump_header(hio_t *hio, u_int32_t starting_partition_sector)
 {
     ppaa_partition_t *head;
-    int index = 0, result;
+    int index, result;
     char *buffer;
     u_int32_t bytes_read;
 
     buffer = osal_alloc(4 _MB);
+    if (buffer == NULL)
+        return (RET_NO_MEM);
+
     result = hio->read(hio, starting_partition_sector + PPAA_START / 512, 4 _MB / 512, buffer, &bytes_read);
-    if (result != RET_OK)
+    if (result != RET_OK) {
+        osal_free(buffer);
         return (result);
+    }
 
     head = (ppaa_partition_t *)buffer;
 
-    if (strncmp(head->magic, PPAA_MAGIC, sizeof(head->magic)))
+    if (strncmp(head->magic, PPAA_MAGIC, strlen(PPAA_MAGIC))) {
+        osal_free(buffer);
         return RET_BAD_APA;
+    }
 
-    while (index < 62) {
-        ssize_t bytes_to_read = head->file[index].size;
-        char *filename, genname[10];
+    for (index = 0; index < 62; index++) {
+        u_int32_t bytes_to_read = head->file[index].size;
+        u_int32_t file_offset = head->file[index].offset;
+        char *filename, genname[16];
 
-        if (bytes_to_read == 0)
-            break;
+        if (bytes_to_read == 0 || file_offset == 0)
+            continue;
 
-        if (ppa_files_name[index])
+        if (file_offset + bytes_to_read > 4 _MB)
+            continue;
+
+        if (index < 6 && ppa_files_name[index] != NULL)
             filename = ppa_files_name[index];
         else {
             filename = genname;
             sprintf(genname, "HEADER_%d", index);
         }
 
-        fprintf(stdout, "%-10s offset=0x%-10x size=%lu\n", filename, head->file[index].offset, bytes_to_read);
-        result = write_file(filename, buffer + head->file[index].offset, bytes_to_read);
-        if (result != RET_OK)
+        fprintf(stdout, "%-10s offset=0x%-10lx size=%lu\n", filename, (unsigned long)file_offset, (unsigned long)bytes_to_read);
+        result = write_file(filename, buffer + file_offset, bytes_to_read);
+        if (result != RET_OK) {
+            osal_free(buffer);
             return (result);
-        index++;
+        }
     }
 
     osal_free(buffer);
-    return 0;
+    return RET_OK;
 }

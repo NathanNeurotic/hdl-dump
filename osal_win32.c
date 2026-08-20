@@ -114,7 +114,7 @@ osal_create_file(const char *path,
                  u_int64_t estimated_size)
 {
     *handle = CreateFile(path, GENERIC_WRITE, FILE_SHARE_READ, NULL,
-                         CREATE_NEW, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_NO_BUFFERING, NULL);
+                         CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
     if (*handle != INVALID_HANDLE_VALUE) {
         if (estimated_size > 0) {
             /* set file size to reduce fragmentation */
