@@ -114,7 +114,7 @@ osal_create_file(const char *path,
                  u_int64_t estimated_size)
 {
     *handle = CreateFile(path, GENERIC_WRITE, FILE_SHARE_READ, NULL,
-                         CREATE_NEW, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_NO_BUFFERING, NULL);
+                         CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
     if (*handle != INVALID_HANDLE_VALUE) {
         if (estimated_size > 0) {
             /* set file size to reduce fragmentation */
@@ -152,8 +152,14 @@ osal_get_estimated_device_size(osal_handle_t handle,
         *size_in_bytes = (geo.Cylinders.QuadPart * geo.TracksPerCylinder *
                           geo.SectorsPerTrack * geo.BytesPerSector);
         return (OSAL_OK);
-    } else
-        return (OSAL_ERR);
+    } else {
+        LARGE_INTEGER fileSize;
+        if (GetFileSizeEx(handle, &fileSize)) {
+            *size_in_bytes = (u_int64_t)fileSize.QuadPart;
+            return (OSAL_OK);
+        }
+    }
+    return (OSAL_ERR);
 }
 
 
@@ -202,8 +208,10 @@ int osal_get_device_sect_size(osal_handle_t handle,
                         NULL, 0, &geo, sizeof(DISK_GEOMETRY), &len, NULL)) {
         *size_in_bytes = geo.BytesPerSector;
         return (OSAL_OK);
-    } else
-        return (OSAL_ERR);
+    } else {
+        *size_in_bytes = 512;
+        return (OSAL_OK);
+    }
 }
 
 
@@ -560,7 +568,7 @@ int /* RET_OK, RET_BAD_FORMAT, RET_BAD_DEVICE */
 osal_map_device_name(const char *input,
                      char output[MAX_PATH])
 {
-    if (memcmp(input, "hdd", 3) == 0) {
+    if (memcmp(input, "hdd", 3) == 0 && isdigit(input[3])) {
         char *endp;
         long index = strtol(input + 3, &endp, 10);
         if (endp == input + 3)
@@ -571,17 +579,21 @@ osal_map_device_name(const char *input,
             return (RET_OK);
         } else
             return (RET_BAD_FORMAT);
-    } else if (memcmp(input, "cd", 2) == 0) {
+    } else if (memcmp(input, "cd", 2) == 0 && isdigit(input[2])) {
         char *endp;
         long index = strtol(input + 2, &endp, 10);
         if (endp == input + 2)
-            return (RET_BAD_FORMAT); /* bad format: no number after hdd */
+            return (RET_BAD_FORMAT); /* bad format: no number after cd */
         if (endp[0] == ':' &&
             endp[1] == '\0') {
             sprintf(output, "\\\\.\\CdRom%ld", index);
             return (RET_OK);
         } else
             return (RET_BAD_FORMAT);
-    } else
-        return (RET_BAD_DEVICE);
+    } else {
+        /* Direct device path or disk image file */
+        strncpy(output, input, MAX_PATH - 1);
+        output[MAX_PATH - 1] = '\0';
+        return (RET_OK);
+    }
 }
