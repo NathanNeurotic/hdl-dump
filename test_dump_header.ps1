@@ -1,10 +1,57 @@
-# test_dump_header.ps1
-# Regression test suite for hdl-dump modify_header and dump_header extraction & roundtrip.
+<#
+.SYNOPSIS
+    Windows Host Regression Test Suite for hdl-dump modify_header and dump_header extraction & roundtrip.
+.DESCRIPTION
+    Runs integration tests against virtual raw disk fixtures to verify:
+    - 128 MiB partition full header asset injection (system.cnf, icon.sys, list.ico, del.ico)
+    - 128 MiB partition file extraction via dump_header with SHA-256 validation
+    - 8 MiB partition full header asset injection and dump_header extraction with SHA-256 validation
+    - Sparse header asset injection (missing/skipped entries) and clean extraction
+#>
+param(
+    [string]$HdlDump = "",
+    [string]$Pfsshell = ""
+)
 
 $ErrorActionPreference = "Continue"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$HdlDumpExe = Join-Path $ScriptDir "hdl_dump.exe"
-$PfsshellExe = "c:\Users\natha\Github\PFS-BatchKit-Manager\PFS-BatchKit-Manager\BAT\pfsshell.exe"
+
+# Resolve hdl_dump binary
+if ([string]::IsNullOrWhiteSpace($HdlDump)) {
+    if (Test-Path (Join-Path $ScriptDir "hdl_dump.exe")) {
+        $HdlDumpExe = (Resolve-Path (Join-Path $ScriptDir "hdl_dump.exe")).Path
+    } elseif (Test-Path (Join-Path $ScriptDir "ci_artifact_final\rel\hdl_dump.exe")) {
+        $HdlDumpExe = (Resolve-Path (Join-Path $ScriptDir "ci_artifact_final\rel\hdl_dump.exe")).Path
+    } elseif (Test-Path (Join-Path $ScriptDir "ci_artifact\rel\hdl_dump.exe")) {
+        $HdlDumpExe = (Resolve-Path (Join-Path $ScriptDir "ci_artifact\rel\hdl_dump.exe")).Path
+    } else {
+        $HdlDumpCmd = Get-Command "hdl_dump.exe" -ErrorAction SilentlyContinue
+        if ($HdlDumpCmd) { $HdlDumpExe = $HdlDumpCmd.Source } else { $HdlDumpExe = Join-Path $ScriptDir "hdl_dump.exe" }
+    }
+} else {
+    $HdlDumpExe = (Resolve-Path $HdlDump).Path
+}
+
+# Resolve pfsshell binary
+if ([string]::IsNullOrWhiteSpace($Pfsshell)) {
+    $candidatePfsshell = @(
+        (Join-Path $ScriptDir "..\pfsshell\build-win32\pfsshell.exe"),
+        (Join-Path $ScriptDir "..\PFS-BatchKit-Manager\PFS-BatchKit-Manager\BAT\pfsshell.exe")
+    )
+    foreach ($cand in $candidatePfsshell) {
+        if (Test-Path $cand) {
+            $PfsshellExe = (Resolve-Path $cand).Path
+            break
+        }
+    }
+    if (-not $PfsshellExe) {
+        $PfsCmd = Get-Command "pfsshell.exe" -ErrorAction SilentlyContinue
+        if ($PfsCmd) { $PfsshellExe = $PfsCmd.Source } else { $PfsshellExe = "pfsshell.exe" }
+    }
+} else {
+    $PfsshellExe = (Resolve-Path $Pfsshell).Path
+}
+
 $WorkDir = Join-Path $ScriptDir "test_header_scratch"
 
 if (Test-Path $WorkDir) {
@@ -27,12 +74,10 @@ function Assert-True([bool]$condition, [string]$msg) {
 
 try {
     Log "Starting hdl-dump header roundtrip regression suite..."
-
-    # Rebuild hdl_dump.exe if needed
-    Log "Building fresh hdl_dump.exe..."
-    $env:PATH = "C:\Users\natha\AppData\Local\Microsoft\WinGet\Packages\MartinStorsjo.LLVM-MinGW.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\llvm-mingw-20260616-ucrt-x86_64\bin;C:\Users\natha\AppData\Local\Programs\Python\Python314\Scripts;" + $env:PATH
-    & cmd.exe /c "mingw32-make RELEASE=yes WINDOWS=yes CC=i686-w64-mingw32-gcc CXX=i686-w64-mingw32-g++ WINDRES=i686-w64-mingw32-windres"
-    Assert-True (Test-Path $HdlDumpExe) "hdl_dump.exe built successfully"
+    Log "Using hdl_dump: $HdlDumpExe"
+    Log "Using pfsshell: $PfsshellExe"
+    Assert-True (Test-Path $HdlDumpExe) "hdl_dump.exe binary exists"
+    Assert-True (Test-Path $PfsshellExe) "pfsshell.exe binary exists"
 
     # Setup disk fixture
     $DiskImg = Join-Path $WorkDir "disk_header.img"

@@ -1,10 +1,58 @@
-# test_fragmented_game_alloc.ps1
-# Regression test suite for hdl-dump allocator overhead, fragmentation, PS2_PART_MAXSUB limit, and transactional rollback.
+<#
+.SYNOPSIS
+    Windows Host Regression Test Suite for hdl-dump allocator overhead, fragmentation, 
+    PS2_PART_MAXSUB limit, and transactional rollback.
+.DESCRIPTION
+    Runs integration tests against virtual raw disk fixtures to verify:
+    - 1.5 GiB DVD game installation on clean APA disk
+    - 1.5 GiB DVD game installation on fragmented APA disk with alternating holes
+    - Out-of-bounds / impossible allocation failure handling
+    - Transactional rollback restoring TOC and map state to 100% pristine clean state
+#>
+param(
+    [string]$HdlDump = "",
+    [string]$Pfsshell = ""
+)
 
 $ErrorActionPreference = "Continue"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$HdlDumpExe = Join-Path $ScriptDir "hdl_dump.exe"
-$PfsshellExe = "c:\Users\natha\Github\PFS-BatchKit-Manager\PFS-BatchKit-Manager\BAT\pfsshell.exe"
+
+# Resolve hdl_dump binary
+if ([string]::IsNullOrWhiteSpace($HdlDump)) {
+    if (Test-Path (Join-Path $ScriptDir "hdl_dump.exe")) {
+        $HdlDumpExe = (Resolve-Path (Join-Path $ScriptDir "hdl_dump.exe")).Path
+    } elseif (Test-Path (Join-Path $ScriptDir "ci_artifact_final\rel\hdl_dump.exe")) {
+        $HdlDumpExe = (Resolve-Path (Join-Path $ScriptDir "ci_artifact_final\rel\hdl_dump.exe")).Path
+    } elseif (Test-Path (Join-Path $ScriptDir "ci_artifact\rel\hdl_dump.exe")) {
+        $HdlDumpExe = (Resolve-Path (Join-Path $ScriptDir "ci_artifact\rel\hdl_dump.exe")).Path
+    } else {
+        $HdlDumpCmd = Get-Command "hdl_dump.exe" -ErrorAction SilentlyContinue
+        if ($HdlDumpCmd) { $HdlDumpExe = $HdlDumpCmd.Source } else { $HdlDumpExe = Join-Path $ScriptDir "hdl_dump.exe" }
+    }
+} else {
+    $HdlDumpExe = (Resolve-Path $HdlDump).Path
+}
+
+# Resolve pfsshell binary
+if ([string]::IsNullOrWhiteSpace($Pfsshell)) {
+    $candidatePfsshell = @(
+        (Join-Path $ScriptDir "..\pfsshell\build-win32\pfsshell.exe"),
+        (Join-Path $ScriptDir "..\PFS-BatchKit-Manager\PFS-BatchKit-Manager\BAT\pfsshell.exe")
+    )
+    foreach ($cand in $candidatePfsshell) {
+        if (Test-Path $cand) {
+            $PfsshellExe = (Resolve-Path $cand).Path
+            break
+        }
+    }
+    if (-not $PfsshellExe) {
+        $PfsCmd = Get-Command "pfsshell.exe" -ErrorAction SilentlyContinue
+        if ($PfsCmd) { $PfsshellExe = $PfsCmd.Source } else { $PfsshellExe = "pfsshell.exe" }
+    }
+} else {
+    $PfsshellExe = (Resolve-Path $Pfsshell).Path
+}
+
 $WorkDir = Join-Path $ScriptDir "test_alloc_scratch"
 
 if (Test-Path $WorkDir) {
@@ -101,12 +149,10 @@ function New-TestIso($path, [long]$sizeBytes, $gameId = "SLUS_999.99") {
 
 try {
     Log "Starting hdl-dump allocator & fragmentation regression suite..."
-
-    # Rebuild hdl_dump.exe if needed
-    Log "Building fresh hdl_dump.exe..."
-    $env:PATH = "C:\Users\natha\AppData\Local\Microsoft\WinGet\Packages\MartinStorsjo.LLVM-MinGW.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\llvm-mingw-20260616-ucrt-x86_64\bin;C:\Users\natha\AppData\Local\Programs\Python\Python314\Scripts;" + $env:PATH
-    & cmd.exe /c "mingw32-make RELEASE=yes WINDOWS=yes CC=i686-w64-mingw32-gcc CXX=i686-w64-mingw32-g++ WINDRES=i686-w64-mingw32-windres"
-    Assert-True (Test-Path $HdlDumpExe) "hdl_dump.exe built successfully"
+    Log "Using hdl_dump: $HdlDumpExe"
+    Log "Using pfsshell: $PfsshellExe"
+    Assert-True (Test-Path $HdlDumpExe) "hdl_dump.exe binary exists"
+    Assert-True (Test-Path $PfsshellExe) "pfsshell.exe binary exists"
 
     # =========================================================================
     # Test Case 1: Clean disk + >1 GiB Game (1.5 GiB installation)
