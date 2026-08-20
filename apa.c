@@ -456,6 +456,21 @@ sort_partitions(ps2_partition_run_t *partitions,
 }
 
 
+static int
+compare_partitions_by_sector(const void *e1,
+                             const void *e2)
+{
+    const ps2_partition_run_t *p1 = e1;
+    const ps2_partition_run_t *p2 = e2;
+    if (p1->sector < p2->sector)
+        return (-1);
+    else if (p1->sector > p2->sector)
+        return (1);
+    else
+        return (0);
+}
+
+
 /* join neighbour partitions of the same size, but sum up to max_part_size_in_mb */
 static void
 optimize_partitions(ps2_partition_run_t *partitions,
@@ -605,6 +620,21 @@ normalize_linked_list(apa_slice_t *slice)
 }
 
 
+static void
+rollback_allocated_chunks(apa_slice_t *slice, u_int32_t orig_part_count)
+{
+    u_int32_t i;
+    char *map = slice->chunks_map;
+    if (map != NULL) {
+        for (i = 0; i < slice->total_chunks; ++i) {
+            if (map[i] == MAP_ALLOC)
+                map[i] = MAP_AVAIL;
+        }
+    }
+    slice->part_count = orig_part_count;
+}
+
+
 /**************************************************************/
 static int
 apa_allocate_space_in_slice(apa_slice_t *slice,
@@ -615,6 +645,7 @@ apa_allocate_space_in_slice(apa_slice_t *slice,
 {
     int result = RET_OK;
     char *map = slice->chunks_map;
+    u_int32_t orig_part_count = slice->part_count;
 
 
     *new_partition_start = (u_int32_t)-1;
@@ -625,57 +656,83 @@ apa_allocate_space_in_slice(apa_slice_t *slice,
         u_int32_t max_part_size_in_entries =
             slice->total_chunks < 32 ? 1 : slice->total_chunks / 32;
         u_int32_t max_part_size_in_mb = max_part_size_in_entries * 8;
-        u_int32_t estimated_entries = (size_in_mb + 7) / 8 + 1;
+        u_int32_t max_runs = slice->total_chunks;
         u_int32_t partitions_used = 0;
         ps2_partition_run_t *partitions =
-            osal_alloc(estimated_entries * sizeof(ps2_partition_run_t));
+            osal_alloc(max_runs * sizeof(ps2_partition_run_t));
         if (partitions != NULL) {
-            /* use the most straight forward approach possible:
-         fill from the first gap onwards */
             u_int32_t mb_remaining = size_in_mb;
-            u_int32_t allocated_mb, overhead_mb, i;
-            partitions->sector = partitions->size_in_mb = 0;
-            for (i = 0; i < estimated_entries; ++i) { /* initialize */
-                partitions[i].sector = 0;
-                partitions[i].size_in_mb = 0;
-            }
-            for (i = 0; mb_remaining > 0 && i < slice->total_chunks; ++i)
+            u_int32_t allocated_mb = 0, overhead_mb = 0, i;
+            memset(partitions, 0, max_runs * sizeof(ps2_partition_run_t));
+
+            /* initial allocation: fill from first available gap */
+            for (i = 0; mb_remaining > 0 && i < slice->total_chunks; ++i) {
                 if (map[i] == MAP_AVAIL) {
+                    if (partitions_used >= max_runs) {
+                        result = RET_NO_SPACE;
+                        break;
+                    }
                     partitions[partitions_used].sector = i * ((8 _MB) / 512);
                     partitions[partitions_used].size_in_mb = 8;
                     map[i] = MAP_ALLOC; /* "allocate" chunk */
                     ++partitions_used;
                     mb_remaining = (mb_remaining > 8 ? mb_remaining - 8 : 0);
                 }
-
-            optimize_partitions(partitions, &partitions_used,
-                                max_part_size_in_mb);
-
-            /* calculate overhead (4M for main + 1M for each sub)
-         and allocate additional 8 M partition if necessary */
-            allocated_mb = 0;
-            overhead_mb = 3;
-            for (i = 0; i < partitions_used; ++i) {
-                allocated_mb += partitions[i].size_in_mb;
-                ++overhead_mb;
             }
-            if (allocated_mb < size_in_mb + overhead_mb) { /* add one more partition or return RET_NO_SPACE */
-                int free_entry_found = 0;
-                for (i = 0; i < slice->total_chunks; ++i)
-                    if (map[i] == MAP_AVAIL) {
-                        partitions[partitions_used].sector =
-                            i * ((8 _MB) / 512);
-                        partitions[partitions_used].size_in_mb = 8;
-                        ++partitions_used;
-                        optimize_partitions(partitions, &partitions_used,
-                                            max_part_size_in_mb);
 
-                        free_entry_found = 1;
+            if (mb_remaining > 0)
+                result = RET_NO_SPACE;
+
+            if (result == RET_OK) {
+                optimize_partitions(partitions, &partitions_used, max_part_size_in_mb);
+
+                /* calculate overhead (4M for main + 1M for each sub: 3 + partitions_used) */
+                allocated_mb = 0;
+                overhead_mb = 3 + partitions_used;
+                for (i = 0; i < partitions_used; ++i)
+                    allocated_mb += partitions[i].size_in_mb;
+
+                /* Repeated top-up loop until allocated capacity satisfies size + overhead */
+                while (allocated_mb < size_in_mb + overhead_mb) {
+                    int free_entry_found = 0;
+                    for (i = 0; i < slice->total_chunks; ++i) {
+                        if (map[i] == MAP_AVAIL) {
+                            if (partitions_used >= max_runs)
+                                break;
+                            partitions[partitions_used].sector =
+                                i * ((8 _MB) / 512);
+                            partitions[partitions_used].size_in_mb = 8;
+                            map[i] = MAP_ALLOC; /* mark tentatively allocated */
+                            ++partitions_used;
+                            free_entry_found = 1;
+                            break;
+                        }
+                    }
+                    if (!free_entry_found) {
+                        result = RET_NO_SPACE;
                         break;
                     }
-                result = free_entry_found ? RET_OK : RET_NO_SPACE;
-            } else
-                result = RET_OK;
+
+                    /* Sort by sector so optimize_partitions can join adjacent runs */
+                    qsort(partitions, partitions_used, sizeof(ps2_partition_run_t), compare_partitions_by_sector);
+                    optimize_partitions(partitions, &partitions_used, max_part_size_in_mb);
+
+                    /* Enforce subpartition limit: 1 main + up to PS2_PART_MAXSUB subs */
+                    if (partitions_used > PS2_PART_MAXSUB + 1) {
+                        result = RET_NO_SPACE;
+                        break;
+                    }
+
+                    allocated_mb = 0;
+                    overhead_mb = 3 + partitions_used;
+                    for (i = 0; i < partitions_used; ++i)
+                        allocated_mb += partitions[i].size_in_mb;
+                }
+
+                /* Final safety checks */
+                if (result == RET_OK && (allocated_mb < size_in_mb + overhead_mb || partitions_used > PS2_PART_MAXSUB + 1))
+                    result = RET_NO_SPACE;
+            }
 
             if (result == RET_OK) { /* create new partitions in the partition slice */
                 ps2_partition_header_t part;
@@ -700,6 +757,10 @@ apa_allocate_space_in_slice(apa_slice_t *slice,
                     *new_partition_start = partitions[0].sector;
                 }
             }
+
+            if (result != RET_OK)
+                rollback_allocated_chunks(slice, orig_part_count);
+
             osal_free(partitions);
         } else
             result = RET_NO_MEM; /* out-of-memory */
