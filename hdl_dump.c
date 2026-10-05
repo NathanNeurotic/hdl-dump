@@ -153,8 +153,8 @@ show_apa_slice(const apa_slice_t *slice)
 
     fprintf(stdout, "Total slice size: %uMB, used: %uMB, available: %uMB\n",
             (unsigned int)slice->size_in_mb,
-            (unsigned int)(slice->allocated_chunks * 128),
-            (unsigned int)(slice->free_chunks * 128));
+            (unsigned int)(slice->allocated_chunks * 8),
+            (unsigned int)(slice->free_chunks * 8));
 }
 
 
@@ -187,8 +187,8 @@ show_apa_slice2(const apa_slice_t *slice)
 
     fprintf(stdout, "Total slice size: %uMB, used: %uMB, available: %uMB\n",
             (unsigned int)slice->size_in_mb,
-            (unsigned int)(slice->allocated_chunks * 128),
-            (unsigned int)(slice->free_chunks * 128));
+            (unsigned int)(slice->allocated_chunks * 8),
+            (unsigned int)(slice->free_chunks * 8));
 }
 
 
@@ -225,14 +225,14 @@ show_slice_map(const apa_slice_t *slice)
     for (i = 0; i < slice->total_chunks; ++i) {
         if (count == 0)
             fprintf(stdout, "%3uGB: ",
-                    (unsigned int)((i / ((GIGS_PER_ROW * 1024) / 128)) *
+                    (unsigned int)((i / ((GIGS_PER_ROW * 1024) / 8)) *
                                    GIGS_PER_ROW));
 
         (void)fputc(map[i], stdout);
         if ((count & 0x07) == 0x07)
             (void)fputc(' ', stdout);
 
-        if (++count == ((GIGS_PER_ROW * 1024) / 128)) /* 8G on each row */
+        if (++count == ((GIGS_PER_ROW * 1024) / 8)) /* 8G on each row */
         {
             (void)fputc('\n', stdout);
             count = 0;
@@ -241,8 +241,8 @@ show_slice_map(const apa_slice_t *slice)
 
     fprintf(stdout, "\nTotal slice size: %uMB, used: %uMB, available: %uMB\n",
             (unsigned int)slice->size_in_mb,
-            (unsigned int)(slice->allocated_chunks * 128),
-            (unsigned int)(slice->free_chunks * 128));
+            (unsigned int)(slice->allocated_chunks * 8),
+            (unsigned int)(slice->free_chunks * 8));
 }
 
 static void
@@ -462,11 +462,11 @@ show_hdl_toc(const dict_t *config,
                        game->name);
             }
             printf("total %uMB, used %uMB, available %uMB\n",
-                   (unsigned int)(glist->total_chunks * 128),
+                   (unsigned int)(glist->total_chunks * 8),
                    (unsigned int)((glist->total_chunks -
                                    glist->free_chunks) *
-                                  128),
-                   (unsigned int)(glist->free_chunks * 128));
+                                  8),
+                   (unsigned int)(glist->free_chunks * 8));
 
             hdl_glist_free(glist);
         }
@@ -997,7 +997,7 @@ backup_toc(const dict_t *config,
                                           RET_OK :
                                           RET_ERR);
                     }
-                    sector += 128 * 1024 * 2;
+                    sector += 8 * 1024 * 2;
                 }
                 (void)fclose(out);
             } else
@@ -1044,7 +1044,7 @@ restore_toc(const dict_t *config,
                     } else
                         result = (bytes == 0 ? RET_OK : RET_ERR);
                 }
-                sector += 128 * 1024 * 2;
+                sector += 8 * 1024 * 2;
             } while (result == RET_OK && bytes == 1024);
             (void)out->close(out), out = NULL;
         }
@@ -1364,7 +1364,7 @@ copy_hdd(const dict_t *config,
             if (i >= flags_count || tolower(flags[i]) == 'y') {
                 const hdl_game_info_t *game = in_list->games + i;
                 ++count;
-                chunks_needed += (game->alloc_size_in_kb / 1024 + 127) / 128;
+                chunks_needed += (game->alloc_size_in_kb / 1024 + 7) / 8;
             }
         result = (out_list->free_chunks >= chunks_needed ?
                       RET_OK :
@@ -1373,7 +1373,7 @@ copy_hdd(const dict_t *config,
 
     if (result == RET_OK && count > 0) {
         printf("%ludMB in %lu game(s) remaining...\n",
-               (long unsigned int)chunks_needed * 128, (long unsigned int)count);
+               (long unsigned int)chunks_needed * 8, (long unsigned int)count);
         for (i = 0; result == RET_OK && i < in_list->count; ++i)
             if (i >= flags_count || tolower(flags[i]) == 'y') { /* copy that game */
                 char in[1024];
@@ -1450,19 +1450,18 @@ progress_cb(progress_t *pgs, /*@unused@*/ void *data)
         fprintf(stdout, "[");
         pos = barWidth * (pgs->pc_completed);
         for (i = 0; i < barWidth; ++i) {
-	        if (i < pos)
-	    	    fprintf(stdout, "=");
-	        else if (i == pos)
-	    	    fprintf(stdout, ">");
-	        else
-	    	    fprintf(stdout, " ");
-	    }
+            if (i < pos)
+                fprintf(stdout, "=");
+            else if (i == pos)
+                fprintf(stdout, ">");
+            else
+                fprintf(stdout, " ");
+        }
         fprintf(stdout,
                 "] %3d%%, %s remaining, %.2f MB/sec         \r",
                 pgs->pc_completed, pgs->remaining_text,
                 (double)pgs->curr_bps / (1024.0 * 1024.0));
-    }
-    else
+    } else
         fprintf(stdout, "%3d%%\r", pgs->pc_completed);
 
     if (now > last_flush) { /* flush about once per second */

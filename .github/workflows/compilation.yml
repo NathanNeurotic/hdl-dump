@@ -3,6 +3,7 @@ name: CI-compile
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -12,7 +13,7 @@ jobs:
         os: [macos-latest, ubuntu-latest]
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install Ubuntu version
       if: ${{ matrix.os == 'ubuntu-latest' && always() }}
@@ -29,7 +30,7 @@ jobs:
     - name: Create tar archive (keep executable bit)
       run: tar -zcvf hdl-dump-${{ env.SHA }}-${{matrix.os}}.tar.gz hdl_dump
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: hdl-dump-${{ env.SHA }}-${{matrix.os}}
         path: |
@@ -40,7 +41,7 @@ jobs:
     container: dockcross/windows-static-x86:latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Compile windows version with cross-compilator
       run: |
@@ -58,10 +59,12 @@ jobs:
     - name: Create tar archive
       run: tar -zcvf hdl-dump-${{ env.SHA }}-windows-latest.tar.gz rel
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
-        name: hdl-dump-${{ env.SHA }}-windows-latest
+        name: hdl_dump-windows-x86
         path: |
+          rel/hdl_dump.exe
+          rel/hdl_dumb.exe
           *tar.gz
 
   release:
@@ -69,14 +72,14 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master'
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Get short SHA
       id: slug
       run: echo "SHA=$(echo ${GITHUB_SHA} | cut -c1-8)" >> $GITHUB_ENV
 
     - name: Download artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
 
     - name: Create pre-release
       if: github.ref == 'refs/heads/master'
